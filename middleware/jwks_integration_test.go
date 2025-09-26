@@ -218,12 +218,15 @@ func TestGetJWKS_AllScenarios(t *testing.T) {
 	}
 
 	for _, scenario := range scenarios {
+
+        discoveryCache, _ := lru.New[string, CachedJWKSURL](10)
+
 		t.Run(scenario.name, func(t *testing.T) {
 			server := scenario.setupServer()
 			defer server.close()
 
 			ctx := context.Background()
-			keySet, err := getJWKSImpl(ctx, server.issuer)
+			keySet, err := getJWKSImplWithCache(ctx, discoveryCache, server.issuer)
 
 			scenario.validateResult(t, keySet, err)
 
@@ -252,19 +255,31 @@ type CacheTestScenario struct {
 // TestGetJWKS_CachingBehavior tests JWKS caching scenarios with data-driven approach.
 // Covers cache hits, expired entries, and async refresh behavior.
 func TestGetJWKS_CachingBehavior(t *testing.T) {
+
+    // FIXME: the cache handling needs more work here
+    discoveryCache1, err := lru.New[string, CachedJWKSURL](10)
+    if err != nil {
+        panic(err)
+    }
+
+    discoveryCache2, err := lru.New[string, CachedJWKSURL](10)
+    if err != nil {
+        panic(err)
+    }
+
 	scenarios := []CacheTestScenario{
 		{
 			name: "cache hit",
 			setupCache: func(t *testing.T, server *mockOIDCServer) {
 				ctx := context.Background()
-				_, err := getJWKSImpl(ctx, server.issuer)
+				_, err := getJWKSImplWithCache(ctx, discoveryCache1, server.issuer)
 				require.NoError(t, err)
 			},
 			validateResult: func(t *testing.T, keySet jwk.Set, err error, server *mockOIDCServer) {
 				require.NoError(t, err)
 				assert.NotNil(t, keySet)
 
-				cachedEntry, found := discoveryCache.Get(server.issuer)
+				cachedEntry, found := discoveryCache1.Get(server.issuer)
 				require.True(t, found)
 				assert.False(t, cachedEntry.IsExpired())
 			},
@@ -273,14 +288,14 @@ func TestGetJWKS_CachingBehavior(t *testing.T) {
 			name: "expired cache refresh",
 			setupCache: func(t *testing.T, server *mockOIDCServer) {
 				ctx := context.Background()
-				_, err := getJWKSImpl(ctx, server.issuer)
+				_, err := getJWKSImplWithCache(ctx, discoveryCache2, server.issuer)
 				require.NoError(t, err)
 				// Manually expire the cache entry
 				expiredEntry := CachedJWKSURL{
 					URL:      server.jwksURL,
 					CachedAt: time.Now().Add(-2 * time.Hour),
 				}
-				discoveryCache.Add(server.issuer, expiredEntry)
+				discoveryCache2.Add(server.issuer, expiredEntry)
 			},
 			validateResult: func(t *testing.T, keySet jwk.Set, err error, server *mockOIDCServer) {
 				require.NoError(t, err)
@@ -288,8 +303,13 @@ func TestGetJWKS_CachingBehavior(t *testing.T) {
 				// Give async refresh time to complete
 				time.Sleep(100 * time.Millisecond)
 
-				refreshedEntry, found := discoveryCache.Get(server.issuer)
-				require.True(t, found)
+				refreshedEntry, found := discoveryCache2.Get(server.issuer)
+                fmt.Println("FIXME: Look into this...i think the entry will not be found here")
+                fmt.Println("refreshedEntry: ", refreshedEntry)
+                fmt.Println("found: ", found)
+//				require.False(t, found)
+//				assert.Nil(t, refreshedEntry)
+                require.True(t, found)
 				assert.False(t, refreshedEntry.IsExpired())
 			},
 		},
@@ -537,6 +557,13 @@ type JWKSDiscoveryTestScenario struct {
 // TestDiscoverJWKSURL_AllScenarios tests complete JWKS discovery workflow with data-driven approach.
 // Covers successful discovery, cache population, and various failure modes.
 func TestDiscoverJWKSURL_AllScenarios(t *testing.T) {
+
+    // FIXME:  needs more work
+    discoveryCache, err := lru.New[string, CachedJWKSURL](10)
+    if err != nil {
+        panic(err)
+    }
+
 	scenarios := []JWKSDiscoveryTestScenario{
 		{
 			name: "integration flow",
@@ -554,7 +581,7 @@ func TestDiscoverJWKSURL_AllScenarios(t *testing.T) {
 			defer server.close()
 
 			ctx := context.Background()
-			jwksURL, err := discoverJWKSURL(ctx, server.issuer, false)
+			jwksURL, err := discoverJWKSURL(ctx, discoveryCache, server.issuer, false)
 
 			if scenario.expectSuccess {
 				require.NoError(t, err)
@@ -582,7 +609,7 @@ func TestDiscoverJWKSURL_AllScenarios(t *testing.T) {
 // Tests multi-issuer scenarios and cache key separation.
 func TestDiscoverJWKSURL_CacheIsolation(t *testing.T) {
 	// Clear cache before test
-	discoveryCache, _ = lru.New[string, CachedJWKSURL](100)
+    discoveryCache, _ := lru.New[string, CachedJWKSURL](100)
 
 	server1 := newMockOIDCServer()
 	defer server1.close()
@@ -593,12 +620,12 @@ func TestDiscoverJWKSURL_CacheIsolation(t *testing.T) {
 	ctx := context.Background()
 
 	// Discover for first issuer
-	jwksURL1, err := discoverJWKSURL(ctx, server1.issuer, false)
+	jwksURL1, err := discoverJWKSURL(ctx, discoveryCache, server1.issuer, false)
 	require.NoError(t, err)
 	assert.Equal(t, server1.jwksURL, jwksURL1)
 
 	// Discover for second issuer
-	jwksURL2, err := discoverJWKSURL(ctx, server2.issuer, false)
+	jwksURL2, err := discoverJWKSURL(ctx, discoveryCache, server2.issuer, false)
 	require.NoError(t, err)
 	assert.Equal(t, server2.jwksURL, jwksURL2)
 
@@ -666,3 +693,17 @@ func getJWKSImpl(ctx context.Context, issuer string) (jwk.Set, error) {
 
     return retriever.Retrieve(ctx, issuer)
 }
+
+// Just a shim for a bit
+func getJWKSImplWithCache(ctx context.Context, discoveryCache *lru.Cache[string, CachedJWKSURL], issuer string) (jwk.Set, error) {
+
+    retriever, err := NewJWKSRetrieverWithCache(true, discoveryCache)
+    if err != nil {
+        return nil, err
+    }
+
+    return retriever.Retrieve(ctx, issuer)
+}
+
+
+

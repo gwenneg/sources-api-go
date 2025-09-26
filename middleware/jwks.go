@@ -15,6 +15,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwk"
 )
 
+/*
 // jwksCache stores JWKS documents with automatic background refresh.
 // Uses jwx library's built-in caching with 1-hour refresh interval.
 // Thread-safe with graceful handling of refresh failures.
@@ -24,6 +25,7 @@ var jwksCache = jwk.NewCache(context.Background())
 // LRU cache with 10 issuer capacity, 1-hour TTL, stale-while-revalidate pattern.
 // Thread-safe for concurrent access.
 var discoveryCache, _ = lru.New[string, CachedJWKSURL](10)
+*/
 
 // CachedJWKSURL stores a discovered JWKS URL with timestamp for cache expiration.
 // Used to implement stale-while-revalidate pattern in discoveryCache.
@@ -63,6 +65,17 @@ func NewJWKSRetriever(requireEncryption bool) (JWKSRetriever, error) {
         jwksCache: jwksCache,
     }, nil
 }
+
+func NewJWKSRetrieverWithCache(requireEncryption bool, urlCache *lru.Cache[string, CachedJWKSURL]) (JWKSRetriever, error) {
+    jwksCache := jwk.NewCache(context.Background())
+
+    return &cachedJWKSRetriever{
+        discoveryCache: urlCache,
+        jwksCache: jwksCache,
+    }, nil
+}
+
+
 
 // GetJWKS retrieves JWKS for the given issuer with two-level caching.
 // Function variable allows mocking in tests.
@@ -105,7 +118,7 @@ func (c *cachedJWKSRetriever) Retrieve(ctx context.Context, issuer string) (jwk.
 
 	if !found {
 		// Cache miss - discover JWKS URL synchronously for first request
-		discoveredURL, err := discoverJWKSURL(ctx, issuer, c.requireEncryption)
+		discoveredURL, err := discoverJWKSURL(ctx, c.discoveryCache, issuer, c.requireEncryption)
 		if err != nil {
 			return nil, fmt.Errorf("JWKS URL discovery failed for issuer %s: %v", issuer, err)
 		}
@@ -126,7 +139,7 @@ func (c *cachedJWKSRetriever) Retrieve(ctx context.Context, issuer string) (jwk.
 			go func() { //nolint:contextcheck
 				// Use context.Background() since this refresh is for future requests,
 				// not the current request which is already being served with stale data
-				refreshedURL, err := discoverJWKSURL(context.Background(), issuer, c.requireEncryption)
+				refreshedURL, err := discoverJWKSURL(context.Background(), c.discoveryCache, issuer, c.requireEncryption)
 				if err != nil {
 					logger.Log.Warnf("Async JWKS URL refresh failed for issuer %s: %v", issuer, err)
 					return // Keep using stale URL
@@ -159,7 +172,7 @@ func (c *cachedJWKSRetriever) Retrieve(ctx context.Context, issuer string) (jwk.
 // discoverJWKSURL discovers JWKS URL using OIDC discovery endpoint.
 // Implements RFC 8414 with issuer validation and HTTPS enforcement.
 // Caches result with timestamp for future use.
-func discoverJWKSURL(ctx context.Context, issuer string, requireEncryption bool) (string, error) {
+func discoverJWKSURL(ctx context.Context, discoveryCache *lru.Cache[string, CachedJWKSURL], issuer string, requireEncryption bool) (string, error) {
 	// Build and validate OIDC discovery URL
 	discoveryURL, err := buildDiscoveryURL(issuer, requireEncryption)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 
 //	"github.com/RedHatInsights/sources-api-go/config"
 //	"github.com/lestrrat-go/jwx/v2/jwk"
+	"github.com/hashicorp/golang-lru/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -474,8 +475,14 @@ func TestDiscoverJWKSURL(t *testing.T) {
             
             issuer := tt.jwtIssuer
 
+            // FIXME:
+            discoveryCache, err := lru.New[string, CachedJWKSURL](10)
+            if err != nil {
+                panic(err)
+            }
+
 			ctx := context.Background()
-			jwksURL, err := discoverJWKSURL(ctx, issuer, false)
+			jwksURL, err := discoverJWKSURL(ctx, discoveryCache, issuer, false)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -546,8 +553,14 @@ func TestDiscoverJWKSURL_Localhost(t *testing.T) {
     */
 	issuer := server.URL
 
+    // FIXME:
+    discoveryCache, err := lru.New[string, CachedJWKSURL](10)
+    if err != nil {
+        panic(err)
+    }
+
 	ctx := context.Background()
-	jwksURL, err := discoverJWKSURL(ctx, issuer, false)
+	jwksURL, err := discoverJWKSURL(ctx, discoveryCache, issuer, false)
 
 	require.NoError(t, err)
 	assert.Equal(t, server.URL+"/.well-known/jwks.json", jwksURL)
