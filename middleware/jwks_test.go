@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
+//	"os"
 	"testing"
 
 //	"github.com/RedHatInsights/sources-api-go/config"
@@ -121,6 +121,7 @@ func TestBuildDiscoveryURL(t *testing.T) {
 // Verifies that HTTP is permitted for localhost/127.0.0.1 when GO_ENV=test.
 // Tests the special case handling for local development and testing.
 func TestBuildDiscoveryURL_LocalhostHTTP(t *testing.T) {
+    /*
 	// Set test environment
 	originalGoEnv := os.Getenv("GO_ENV")
 
@@ -133,6 +134,7 @@ func TestBuildDiscoveryURL_LocalhostHTTP(t *testing.T) {
 	}()
 
 	os.Setenv("GO_ENV", "test")
+    */
 
 	tests := []struct {
 		name    string
