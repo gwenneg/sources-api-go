@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
+//	"os"
 	"testing"
 
-	"github.com/RedHatInsights/sources-api-go/config"
-	"github.com/lestrrat-go/jwx/v2/jwk"
+//	"github.com/RedHatInsights/sources-api-go/config"
+//	"github.com/lestrrat-go/jwx/v2/jwk"
+	"github.com/hashicorp/golang-lru/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+/*
 // TestGetJWKS_Integration tests the GetJWKS function variable for mocking capability.
 // Verifies that the function can be replaced for testing and restored properly.
 // Tests the mocking pattern used in JWT authentication tests.
@@ -43,6 +45,7 @@ func TestGetJWKS_Integration(t *testing.T) {
 	assert.True(t, mockCalled)
 	assert.Equal(t, mockKeySet, keySet)
 }
+*/
 
 // TestBuildDiscoveryURL tests OIDC discovery URL construction from issuer URLs.
 // Verifies HTTPS enforcement, trailing slash handling, and error cases.
@@ -101,7 +104,7 @@ func TestBuildDiscoveryURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url, err := buildDiscoveryURL(tt.issuer)
+			url, err := buildDiscoveryURL(tt.issuer, true)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -119,6 +122,7 @@ func TestBuildDiscoveryURL(t *testing.T) {
 // Verifies that HTTP is permitted for localhost/127.0.0.1 when GO_ENV=test.
 // Tests the special case handling for local development and testing.
 func TestBuildDiscoveryURL_LocalhostHTTP(t *testing.T) {
+    /*
 	// Set test environment
 	originalGoEnv := os.Getenv("GO_ENV")
 
@@ -131,6 +135,7 @@ func TestBuildDiscoveryURL_LocalhostHTTP(t *testing.T) {
 	}()
 
 	os.Setenv("GO_ENV", "test")
+    */
 
 	tests := []struct {
 		name    string
@@ -154,7 +159,7 @@ func TestBuildDiscoveryURL_LocalhostHTTP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url, err := buildDiscoveryURL(tt.issuer)
+			url, err := buildDiscoveryURL(tt.issuer, false)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -417,6 +422,7 @@ func TestDiscoverJWKSURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+            /*
 			// Set up environment
 			originalIssuer := os.Getenv("JWT_ISSUER")
 
@@ -429,6 +435,7 @@ func TestDiscoverJWKSURL(t *testing.T) {
 
 				config.Reset()
 			}()
+            */
 
 			var server *httptest.Server
 
@@ -454,6 +461,7 @@ func TestDiscoverJWKSURL(t *testing.T) {
 				}
 			}
 
+            /*
 			if tt.jwtIssuer != "" {
 				os.Setenv("JWT_ISSUER", tt.jwtIssuer)
 			} else {
@@ -462,9 +470,19 @@ func TestDiscoverJWKSURL(t *testing.T) {
 
 			config.Reset()
 
-			ctx := context.Background()
 			issuer := config.Get().JWTIssuer
-			jwksURL, err := discoverJWKSURL(ctx, issuer)
+            */
+            
+            issuer := tt.jwtIssuer
+
+            // FIXME:
+            discoveryCache, err := lru.New[string, CachedJWKSURL](10)
+            if err != nil {
+                panic(err)
+            }
+
+			ctx := context.Background()
+			jwksURL, err := discoverJWKSURL(ctx, discoveryCache, issuer, false)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -482,6 +500,7 @@ func TestDiscoverJWKSURL(t *testing.T) {
 // Verifies that localhost HTTP discovery works in test environments.
 // Tests the integration of localhost HTTP support with full discovery flow.
 func TestDiscoverJWKSURL_Localhost(t *testing.T) {
+/*
 	// Set test environment to allow localhost HTTP
 	originalGoEnv := os.Getenv("GO_ENV")
 
@@ -494,6 +513,7 @@ func TestDiscoverJWKSURL_Localhost(t *testing.T) {
 	}()
 
 	os.Setenv("GO_ENV", "test")
+*/
 
 	// Create test server
 	var server *httptest.Server
@@ -513,6 +533,7 @@ func TestDiscoverJWKSURL_Localhost(t *testing.T) {
 	}))
 	defer server.Close()
 
+    /*
 	// Set up environment
 	originalIssuer := os.Getenv("JWT_ISSUER")
 
@@ -528,10 +549,18 @@ func TestDiscoverJWKSURL_Localhost(t *testing.T) {
 
 	os.Setenv("JWT_ISSUER", server.URL)
 	config.Reset()
+	issuer := config.Get().JWTIssuer
+    */
+	issuer := server.URL
+
+    // FIXME:
+    discoveryCache, err := lru.New[string, CachedJWKSURL](10)
+    if err != nil {
+        panic(err)
+    }
 
 	ctx := context.Background()
-	issuer := config.Get().JWTIssuer
-	jwksURL, err := discoverJWKSURL(ctx, issuer)
+	jwksURL, err := discoverJWKSURL(ctx, discoveryCache, issuer, false)
 
 	require.NoError(t, err)
 	assert.Equal(t, server.URL+"/.well-known/jwks.json", jwksURL)
