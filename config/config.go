@@ -117,10 +117,12 @@ func (s SourcesApiConfig) String() string {
 	return b.String()
 }
 
+/*
 // Reset clears the cached configuration - primarily for testing purposes
 func Reset() {
 	parsedConfig = nil
 }
+*/
 
 // Get - returns the config parsed from runtime vars
 func Get() *SourcesApiConfig {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
+//	"os"
 	"testing"
 	"time"
 
@@ -331,7 +331,7 @@ func TestBuildDiscoveryURL_AllScenarios(t *testing.T) {
 
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			url, err := buildDiscoveryURL(scenario.issuer)
+			url, err := buildDiscoveryURL(scenario.issuer, true)
 			if scenario.expectError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), scenario.expectError)
@@ -348,18 +348,8 @@ func TestBuildDiscoveryURL_AllScenarios(t *testing.T) {
 // Verifies that HTTP is permitted for localhost/127.0.0.1 when GO_ENV=test.
 // Tests the special case handling for local development and testing.
 func TestBuildDiscoveryURL_LocalhostHTTPIntegration(t *testing.T) {
-	// Set test environment
-	originalGoEnv := os.Getenv("GO_ENV")
 
-	defer func() {
-		if originalGoEnv != "" {
-			os.Setenv("GO_ENV", originalGoEnv)
-		} else {
-			os.Unsetenv("GO_ENV")
-		}
-	}()
-
-	os.Setenv("GO_ENV", "test")
+    requireEncryption := false
 
 	tests := []struct {
 		name     string
@@ -385,7 +375,7 @@ func TestBuildDiscoveryURL_LocalhostHTTPIntegration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url, err := buildDiscoveryURL(tt.issuer)
+			url, err := buildDiscoveryURL(tt.issuer, requireEncryption)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, url)
 		})
@@ -564,7 +554,7 @@ func TestDiscoverJWKSURL_AllScenarios(t *testing.T) {
 			defer server.close()
 
 			ctx := context.Background()
-			jwksURL, err := discoverJWKSURL(ctx, server.issuer)
+			jwksURL, err := discoverJWKSURL(ctx, server.issuer, false)
 
 			if scenario.expectSuccess {
 				require.NoError(t, err)
@@ -603,12 +593,12 @@ func TestDiscoverJWKSURL_CacheIsolation(t *testing.T) {
 	ctx := context.Background()
 
 	// Discover for first issuer
-	jwksURL1, err := discoverJWKSURL(ctx, server1.issuer)
+	jwksURL1, err := discoverJWKSURL(ctx, server1.issuer, false)
 	require.NoError(t, err)
 	assert.Equal(t, server1.jwksURL, jwksURL1)
 
 	// Discover for second issuer
-	jwksURL2, err := discoverJWKSURL(ctx, server2.issuer)
+	jwksURL2, err := discoverJWKSURL(ctx, server2.issuer, false)
 	require.NoError(t, err)
 	assert.Equal(t, server2.jwksURL, jwksURL2)
 
@@ -665,4 +655,14 @@ func TestCachedJWKSURL_IsExpired(t *testing.T) {
 			assert.Equal(t, tt.expected, cached.IsExpired())
 		})
 	}
+}
+
+// Just a shim for a bit
+func getJWKSImpl(ctx context.Context, issuer string) (jwk.Set, error) {
+    retriever, err := NewJWKSRetriever(true)
+    if err != nil {
+        return nil, err
+    }
+
+    return retriever.Retrieve(ctx, issuer)
 }

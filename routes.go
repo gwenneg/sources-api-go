@@ -42,6 +42,19 @@ func setupRoutes(e *echo.Echo, metricsService metrics.MetricsService) {
 		permissionWithListMiddleware      = append(listMiddleware, permissionCheckMiddleware)
 	)
 
+    cfg := config.Get()
+    requireEncryption := true // FIXME:
+
+    jwksRetriever, err := middleware.NewJWKSRetriever(requireEncryption)
+    if err != nil {
+        panic(err) // FIXME:
+    }
+
+    jwtValidator, err := middleware.NewJWTValidator(cfg.JWTIssuer, jwksRetriever)
+    if err != nil {
+        panic(err) // FIXME:
+    }
+
 	apiVersions := []string{"v1.0", "v2.0", "v3.0", "v3.1", "v1", "v2", "v3"}
 	for _, version := range apiVersions {
 		// this is the "base" middleware set, used on every call
@@ -50,7 +63,7 @@ func setupRoutes(e *echo.Echo, metricsService metrics.MetricsService) {
 			middleware.HandleErrors,
 			middleware.IdValidation,
 			middleware.ParseHeaders,
-			middleware.JWTAuthentication(),
+			middleware.JWTAuthentication(cfg, jwtValidator, cfg.AuthorizedJWTSubjects),
 		)
 
 		// openapi
@@ -164,7 +177,7 @@ func setupRoutes(e *echo.Echo, metricsService metrics.MetricsService) {
 			middleware.HandleErrors,
 			middleware.ParseHeaders,
 			middleware.LoggerFields,
-			middleware.JWTAuthentication(),
+			middleware.JWTAuthentication(cfg, jwtValidator, cfg.AuthorizedJWTSubjects),
 		)
 
 		// Authentications
